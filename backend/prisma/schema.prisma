@@ -1,0 +1,96 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum CurriculumCategory {
+  NUMBER_SENSE
+  ARITHMETIC
+  SHAPES_PATTERNS
+  MEASUREMENT_TIME
+}
+
+enum ProgressStatus {
+  NOT_STARTED
+  IN_PROGRESS
+  COMPLETED
+  NEEDS_REVIEW
+}
+
+model Parent {
+  id                 String    @id @default(uuid())
+  email              String    @unique
+  passwordHash       String
+  subscriptionStatus String    @default("inactive") // inactive | active | trialing — Stripe wiring comes later
+  createdAt          DateTime  @default(now())
+  students           Student[]
+}
+
+model Student {
+  id        String    @id @default(uuid())
+  parent    Parent    @relation(fields: [parentId], references: [id], onDelete: Cascade)
+  parentId  String
+  name      String
+  age       Int
+  createdAt DateTime  @default(now())
+
+  progressLogs ProgressLog[]
+  sessions     ConversationSession[]
+}
+
+model CurriculumUnit {
+  id       String             @id @default(uuid())
+  order    Int
+  title    String
+  category CurriculumCategory
+  lessons  Lesson[]
+
+  @@unique([order])
+}
+
+model Lesson {
+  id        String   @id @default(uuid())
+  unit      CurriculumUnit @relation(fields: [unitId], references: [id], onDelete: Cascade)
+  unitId    String
+  order     Int
+  title     String
+  objective String
+  content   String   @db.Text // teaching script / talking points the LLM draws on
+
+  progressLogs        ProgressLog[]
+  conversationSessions ConversationSession[]
+
+  @@unique([unitId, order])
+}
+
+model ProgressLog {
+  id                  String         @id @default(uuid())
+  student             Student        @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId           String
+  lesson              Lesson         @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+  lessonId            String
+  status              ProgressStatus @default(NOT_STARTED)
+  understoodConfidence Int?          // 0-100, set from the AI's read on the child's understanding
+  attempts            Int            @default(0)
+  lastAttemptAt        DateTime?
+  notes               String?        @db.Text
+
+  @@unique([studentId, lessonId])
+}
+
+// One row per tutoring session; transcript + summary power next-day recall.
+model ConversationSession {
+  id         String    @id @default(uuid())
+  student    Student   @relation(fields: [studentId], references: [id], onDelete: Cascade)
+  studentId  String
+  lesson     Lesson?   @relation(fields: [lessonId], references: [id])
+  lessonId   String?
+  startedAt  DateTime  @default(now())
+  endedAt    DateTime?
+  transcript Json      @default("[]") // [{ role: "child" | "tutor", text, timestamp }]
+  summary    String?   @db.Text
+}

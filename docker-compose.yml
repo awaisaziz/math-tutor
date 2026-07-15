@@ -1,0 +1,53 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: tutor_user
+      POSTGRES_PASSWORD: tutor_pass
+      POSTGRES_DB: math_tutor
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tutor_user -d math_tutor"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  backend:
+    build: ./backend
+    env_file:
+      - ./backend/.env
+    environment:
+      DATABASE_URL: postgresql://tutor_user:tutor_pass@postgres:5432/math_tutor?schema=public
+      # Docker Desktop on Windows doesn't forward filesystem change events into the
+      # container's bind mount, so chokidar's default watcher silently misses edits —
+      # polling is required for tsx watch to actually pick up code changes.
+      CHOKIDAR_USEPOLLING: "true"
+    ports:
+      - "4000:4000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    volumes:
+      - ./backend/src:/app/src
+      - ./backend/prisma:/app/prisma
+
+  frontend:
+    build: ./frontend
+    env_file:
+      - ./frontend/.env.local
+    environment:
+      # Same Docker Desktop / Windows bind-mount issue — Next's Webpack watcher
+      # needs polling too, or edits never trigger a recompile.
+      WATCHPACK_POLLING: "true"
+    ports:
+      - "3000:3000"
+    depends_on:
+      - backend
+    volumes:
+      - ./frontend/src:/app/src
+
+volumes:
+  pgdata:
